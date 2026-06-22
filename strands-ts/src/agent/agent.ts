@@ -312,6 +312,29 @@ export type AgentConfig = {
 }
 
 /**
+ * Options for {@link Agent.clone}.
+ *
+ * A clone replays the template's original {@link AgentConfig} through the
+ * constructor. `overrides` are merged on top of that config (last-wins), and
+ * `additionalPlugins` are appended to the template's plugins. Anything not
+ * overridden is taken from the template's config.
+ */
+export type AgentCloneOptions = {
+  /**
+   * Config fields to override on the clone. Merged over the template's original
+   * config, so e.g. `{ sessionManager }` swaps the session manager while leaving
+   * every other field as the template had it.
+   */
+  overrides?: Partial<AgentConfig>
+  /**
+   * Plugins to register on the clone in addition to the template's plugins.
+   * Use this for per-clone observability or policy plugins. Pass freshly built
+   * instances when a plugin holds mutable per-agent state.
+   */
+  additionalPlugins?: Plugin[]
+}
+
+/**
  * Resolve the contextManager facade into a concrete ConversationManager.
  *
  * When contextManager is undefined, falls back to the default SlidingWindowConversationManager.
@@ -484,10 +507,17 @@ export class Agent implements LocalAgent, InvokableAgent {
   private readonly _toolCaller: ToolCallerProxy
 
   /**
+   * The configuration this agent was constructed with, captured so {@link clone}
+   * can rebuild a fresh agent by replaying the constructor.
+   */
+  private readonly _config: AgentConfig
+
+  /**
    * Creates an instance of the Agent.
    * @param config - The configuration for the agent.
    */
   constructor(config?: AgentConfig) {
+    this._config = { ...config }
     // Initialize public fields
     this.messages = (config?.messages ?? []).map((msg) => (msg instanceof Message ? msg : Message.fromMessageData(msg)))
     this.appState = new StateStore(config?.appState)
@@ -1330,6 +1360,43 @@ export class Agent implements LocalAgent, InvokableAgent {
    */
   public loadSnapshot(snapshot: Snapshot): void {
     loadSnapshotInternal(this, snapshot)
+  }
+
+  /**
+   * Creates a fresh agent from this agent's original configuration.
+   *
+   * The clone is built by replaying the {@link AgentConfig} this agent was
+   * constructed with through the constructor — it is NOT a copy of this agent's
+   * current runtime state. Conversation history, accumulated model state, hook
+   * registrations made after construction, and in-flight invocation state are
+   * all absent from the clone. Override the initial `messages`/`appState`/
+   * `modelState` via `options.overrides` to seed the clone explicitly.
+   *
+   * @param options - Config overrides and additional plugins for the clone
+   * @returns A new, uninitialized {@link Agent}
+   *
+   * @example
+   * ```typescript
+   * const template = new Agent({ model, tools: [mcpClient] })
+   *
+   * // Per-thread clone with its own session and a disabled printer.
+   * const perThread = template.clone({
+   *   overrides: { sessionManager, printer: false },
+   * })
+   * ```
+   */
+  public clone(options?: AgentCloneOptions): Agent {
+    const { overrides, additionalPlugins } = options ?? {}
+    const config: AgentConfig = {
+      ...this._config,
+      ...overrides,
+    }
+    // `additionalPlugins` append to whichever plugin set survived the merge
+    // (the template's, or `overrides.plugins` if the caller replaced it).
+    if (additionalPlugins && additionalPlugins.length > 0) {
+      config.plugins = [...(config.plugins ?? []), ...additionalPlugins]
+    }
+    return new Agent(config)
   }
 
   /**
