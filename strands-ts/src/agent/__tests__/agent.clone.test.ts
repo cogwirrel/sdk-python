@@ -56,11 +56,25 @@ describe('Agent.clone', () => {
 
     expect(clone).toBeInstanceOf(Agent)
     expect(clone).not.toBe(template)
-    expect(clone.name).toBe('tpl')
-    expect(clone.description).toBe('the template')
-    expect(clone.id).toBe('tpl-id')
-    expect(clone.appState.getAll()).toEqual({ a: 1 })
-    expect(clone.modelState.getAll()).toEqual({ m: 2 })
+    // Single shape assertion so a field the clone drops (or carries with an
+    // unexpected value) fails the test — per TESTING.md "Object Assertion".
+    expect({
+      name: clone.name,
+      description: clone.description,
+      id: clone.id,
+      systemPrompt: clone.systemPrompt,
+      appState: clone.appState.getAll(),
+      modelState: clone.modelState.getAll(),
+    }).toEqual({
+      name: 'tpl',
+      description: 'the template',
+      id: 'tpl-id',
+      systemPrompt: 'be helpful',
+      appState: { a: 1 },
+      modelState: { m: 2 },
+    })
+    // Reference-identity check kept separate: the Model is intentionally
+    // shared with the template, not value-copied.
     expect(clone.model).toBe(template.model)
   })
 

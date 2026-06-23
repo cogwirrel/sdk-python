@@ -1,4 +1,15 @@
-import { Agent, type Snapshot } from '@strands-agents/sdk'
+import {
+  Agent,
+  McpClient,
+  SessionManager,
+  FileStorage,
+  type Snapshot,
+} from '@strands-agents/sdk'
+import type { Plugin } from '@strands-agents/sdk'
+
+declare const mcpClient: McpClient
+declare const statelessPlugin: Plugin
+declare const statefulPlugin: Plugin
 
 // Take snapshot example
 async function takeSnapshotExample() {
@@ -131,4 +142,60 @@ async function branchingExample() {
   await agent.invoke('Continue in a casual, conversational tone')
   const casualSnapshot = agent.takeSnapshot({ preset: 'session' })
   // --8<-- [end:branching]
+}
+
+// Basic clone
+function basicCloneExample() {
+  // --8<-- [start:clone_basic]
+  const template = new Agent({
+    model: 'global.anthropic.claude-sonnet-4-6',
+    systemPrompt: 'You are a helpful assistant',
+    tools: [mcpClient],
+  })
+
+  // Build a fresh agent wired up exactly like the template.
+  const clone = template.clone()
+  // --8<-- [end:clone_basic]
+  return clone
+}
+
+// Per-session isolation
+function clonePerSessionExample(sessionId: string) {
+  const template = new Agent({
+    model: 'global.anthropic.claude-sonnet-4-6',
+    tools: [mcpClient],
+  })
+  // --8<-- [start:clone_per_session]
+  // Each session gets its own SessionManager (otherwise all clones would
+  // share one session) and a disabled printer.
+  const perSession = template.clone({
+    overrides: {
+      sessionManager: new SessionManager({
+        sessionId,
+        storage: { snapshot: new FileStorage('./sessions') },
+      }),
+      printer: false,
+    },
+  })
+  // --8<-- [end:clone_per_session]
+  return perSession
+}
+
+// Stateful plugins: share vs isolate
+function clonePluginExample() {
+  // --8<-- [start:clone_plugins]
+  // A plugin in the template's constructor is SHARED across every clone —
+  // fine for stateless plugins.
+  const template = new Agent({
+    model: 'global.anthropic.claude-sonnet-4-6',
+    plugins: [statelessPlugin], // shared by all clones
+  })
+
+  // Give a clone its own plugin instance via additionalPlugins — use this for
+  // plugins that hold per-session mutable state.
+  const clone = template.clone({
+    additionalPlugins: [statefulPlugin],
+  })
+  // --8<-- [end:clone_plugins]
+  return clone
 }
