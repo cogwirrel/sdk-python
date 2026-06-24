@@ -4,6 +4,7 @@ description: "Capture and restore agent state at any point in time. Use snapshot
 sourceLinks:
   - path: strands-py/src/strands/types/_snapshot.py
   - path: strands-ts/src/agent/snapshot.ts
+  - path: strands-ts/src/agent/agent.ts
 ---
 
 Snapshots capture agent state at a point in time so you can save and restore it later. You choose which fields to include — either by picking a preset (a preconfigured set of fields) or by specifying fields directly — and you can further refine with includes and excludes. Snapshots are plain JSON-serializable objects — persistence is up to you.
@@ -296,6 +297,45 @@ casual_snapshot = agent.take_snapshot(preset="session")
 ```
 </Tab>
 </Tabs>
+
+## Cloning Agents *(TypeScript only)*
+
+Snapshots copy an agent's **runtime state**. `Agent.clone()` is the complement: it copies an agent's **configuration** into a brand-new agent. Use it to serve many independent agents — per request, thread, or session — from one configured "template" agent.
+
+```typescript
+--8<-- "user-guide/concepts/agents/snapshots.ts:clone_basic"
+```
+
+The clone is built by replaying the template's original `AgentConfig` through the constructor. It is **not** a copy of runtime state: conversation history, accumulated model state, and hook registrations added after construction are all absent from the clone (seed them explicitly via `options.overrides`).
+
+### What is shared vs. isolated
+
+The clone is constructed from the same config values the template was given, so any object you passed in the constructor is reused by reference — the template and every clone point at the same instance unless you override it:
+
+| Config | In each clone | How to isolate |
+| --- | --- | --- |
+| `model`, `tools` (incl. `McpClient`s) | The same instances you passed (a string `model` builds a fresh `BedrockModel` per clone) | `overrides.model` / `overrides.tools` |
+| `sessionManager` | The same instance you passed | `overrides.sessionManager` |
+| `memoryManager` | The same instance you passed (a fresh `MemoryManager` is constructed per clone) | `overrides.memoryManager` |
+| `plugins` (from the constructor) | The same instances you passed | `additionalPlugins` adds fresh instances; `overrides.plugins` replaces the list |
+| `appState`, `modelState` | A fresh store seeded from the config values | (already isolated) |
+| `messages` | A fresh array built from the config values | (already isolated) |
+
+Reusing instances is the right default for stateless wiring like `model` and `tools` — it's also what lets a clone resolve the template's [MCP tools](../tools/mcp-tools.mdx) on its own first run **without the template ever being initialized**, which makes `clone()` a good fit for servers that build a per-session agent from a shared template. When cloning for per-session isolation, two cases are worth handling explicitly:
+
+- **`sessionManager`** is bound to one session, so it's recommended to give each clone its own fresh instance via `overrides`:
+
+  ```typescript
+  --8<-- "user-guide/concepts/agents/snapshots.ts:clone_per_session"
+  ```
+
+- **Stateful plugins** hold per-agent state, so it's recommended to give each clone its own fresh instance via `additionalPlugins`:
+
+  ```typescript
+  --8<-- "user-guide/concepts/agents/snapshots.ts:clone_plugins"
+  ```
+
+`clone()` and snapshots compose: clone a template to get a freshly-wired agent for a new session, then `loadSnapshot()` into it (or attach a `SessionManager`) to resume that session's prior state.
 
 ## Relationship to Session Management
 
