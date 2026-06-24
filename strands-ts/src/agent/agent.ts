@@ -316,8 +316,9 @@ export type AgentConfig = {
  *
  * A clone replays the template's original {@link AgentConfig} through the
  * constructor. `overrides` are merged on top of that config (last-wins), and
- * `additionalPlugins` are appended to the template's plugins. Anything not
- * overridden is taken from the template's config.
+ * `additionalPlugins` are appended to the resulting plugin list (the template's,
+ * or `overrides.plugins` if that replaced it). Anything not overridden is taken
+ * from the template's config.
  */
 export type AgentCloneOptions = {
   /**
@@ -1371,6 +1372,17 @@ export class Agent implements LocalAgent, InvokableAgent {
    * registrations made after construction, and in-flight invocation state are
    * all absent from the clone. Override the initial `messages`/`appState`/
    * `modelState` via `options.overrides` to seed the clone explicitly.
+   *
+   * The clone is constructed from the same config values, so any object passed
+   * in the original config — a `model`/`memoryManager` instance, `tools`,
+   * `sessionManager`, and any `plugins` not replaced — is reused by reference,
+   * shared with the template and across all clones unless overridden. (A
+   * `model` string or `memoryManager` config object is rebuilt fresh per clone,
+   * as in the constructor.) Sharing is intentional for stateless wiring like
+   * `model` and `tools` — it's what lets a clone resolve the template's MCP
+   * tools without re-connecting. But for per-session isolation, supply fresh
+   * instances: a `sessionManager` via `overrides` (otherwise every clone shares
+   * one session), and stateful plugins via `additionalPlugins`.
    *
    * @param options - Config overrides and additional plugins for the clone
    * @returns A new, uninitialized {@link Agent}
